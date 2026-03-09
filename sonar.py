@@ -1,88 +1,43 @@
-# HC-SR04 Ultrasonic Distance (MicroPython)
-# - Robust: timeouts prevent freezing
-# - Beginner friendly: clear steps + readable math
-
-from machine import Pin
+from machine import Pin, time_pulse_us
 import time
 
-# --- Wiring (Pico example) ---
-TRIG = Pin(19, Pin.OUT)   # Pico GPIO19 -> HC-SR04 TRIG
-ECHO = Pin(18, Pin.IN)    # Pico GPIO18 <- HC-SR04 ECHO 
+# set up pins for the ultrasonic sensor
+TRIG = Pin(19, Pin.OUT)   # trigger pin sends pulse to sensor
+ECHO = Pin(18, Pin.IN)    # echo pin receives return signal
 
-# --- Constants ---
-TRIG_PULSE_US = 10
-
-# HC-SR04 typical max range is ~400 cm
-# Round-trip time for 400 cm is about 23,000 us (23 ms), so choose a little bigger:
-TIMEOUT_US = 30_000
-
-# Speed of sound at room temp ≈ 343 m/s
-# Convert to cm/us: 343 m/s = 34300 cm/s = 0.0343 cm/us
-SPEED_CM_PER_US = 0.0343
-
-
-def send_trigger_pulse():
-    """Send the 10 us trigger pulse to start a measurement."""
-    TRIG.value(0)
-    time.sleep_us(2)               # short settle
-    TRIG.value(1)
-    time.sleep_us(TRIG_PULSE_US)   # >= 10 us
-    TRIG.value(0)
-
-
-def measure_echo_pulse_us(timeout_us=TIMEOUT_US):
-    """
-    Measure how long ECHO stays HIGH (in microseconds).
-    Returns:
-        pulse_us (int) if successful
-        None if timeout (no echo / out of range / wiring issue)
-    """
-    # 1) Wait for ECHO to go HIGH (start of pulse)
-    start_wait = time.ticks_us()
-    while ECHO.value() == 0:
-        if time.ticks_diff(time.ticks_us(), start_wait) > timeout_us:
-            return None
-
-    pulse_start = time.ticks_us()
-
-    # 2) Wait for ECHO to go LOW (end of pulse)
-    while ECHO.value() == 1:
-        if time.ticks_diff(time.ticks_us(), pulse_start) > timeout_us:
-            return None
-
-    pulse_end = time.ticks_us()
-
-    # pulse width = round-trip travel time
-    return time.ticks_diff(pulse_end, pulse_start)
-
-
-def distance_cm():
-    """
-    Trigger the sensor and return distance in cm.
-    Returns:
-        distance (float) or None if out of range/timeout.
-    """
-    send_trigger_pulse()
-
-    echo_us = measure_echo_pulse_us()
-    if echo_us is None:
-        return None
-
-    # Distance = (speed * time) / 2
-    # time is round-trip, so divide by 2 to get one-way distance
-    d_cm = (echo_us * SPEED_CM_PER_US) / 2
-    return d_cm
-
-
-# --- Main loop ---
-time.sleep(2)  # optional: let sensor settle on power-up
+# onboard LED on Pico W
+led = Pin("LED", Pin.OUT)
 
 while True:
-    d = distance_cm()
 
-    if d is None:
-        print("Out of range / no echo")
+    # send a short trigger pulse to start measurement
+    TRIG.value(0)
+    time.sleep_us(2)
+    TRIG.value(1)
+    time.sleep_us(10)
+    TRIG.value(0)
+
+    # measure how long the echo pin stays HIGH
+    duration = time_pulse_us(ECHO, 1, 30000)
+
+    # if a valid echo was received
+    if duration > 0:
+
+        # convert time to distance in centimeters
+        distance = (duration * 0.0343) / 2
+
+        # print distance to terminal
+        print("Distance:", distance)
+
+        # turn LED on if object is closer than 10 cm
+        if distance < 10:
+            led.value(1)
+        else:
+            led.value(0)
+
     else:
-        print("Distance: {:.1f} cm".format(d))
+        # print message if no echo detected
+        print("No echo")
 
-    time.sleep_ms(500)
+    # short delay before next measurement
+    time.sleep(0.3)
